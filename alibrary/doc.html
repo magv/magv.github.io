@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+ <head>
+  <meta charset="UTF-8">
+  <title>doc.py</title>
+  <meta name="viewport" content="width=device-width">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+ </head>
+ <body>
+</pre>
+<h1 id="DocPy">doc.py</h1>
+<p>This scripts generates annotated, cross-linked, and
+syntax-highlighted source files (in HTML).</p>
+<p>The idea is simple: each file is split into a series of
+top-level comment blocks and source code. Comments are rendered
+as Markdown, code is syntax-highlighted with <a href="https://pygments.org/">Pygments</a>. Markdown
+is extended in two ways:</p>
+<ol>
+<li>
+<p>The <code>[[double bracket]]</code> syntax means a link to a header
+somewhere in the current or neighboring files.</p>
+</li>
+<li>
+<p>A comment block directly preceeding a function definition
+automatically creates a sub-sub-section named after the function.</p>
+</li>
+<li>
+<p>The <code>$dollar$</code> syntax means math, and will be rendered via
+LaTeX. The <code>$$double dollar$$</code> syntax means display math.</p>
+</li>
+</ol>
+<p>The code hightlight also cross-links function names to their
+definitions and/or official documentation (for Mathematica).</p>
+<p>Needed packages:</p>
+<pre class="doc"><span class="tnv">pip3</span> <span class="tnv">install</span> <span class="tnv">mistletoe</span> <span class="tnv">pygments</span> <span class="tnv">pygments</span>-<span class="tnv">mathematica</span> <span class="tnv">scour</span>
+</pre>
+
+<pre><span class="tnb">import</span> <span class="tnt">glob</span>
+<span class="tnb">import</span> <span class="tnt">io</span>
+<span class="tnb">import</span> <span class="tnt">mistletoe</span>
+<span class="tnb">import</span> <span class="tnt">mistletoe.span_token</span>
+<span class="tnb">import</span> <span class="tnt">os</span>
+<span class="tnb">import</span> <span class="tnt">os.path</span>
+<span class="tnb">import</span> <span class="tnt">pygments</span>
+<span class="tnb">import</span> <span class="tnt">pygments.formatters</span>
+<span class="tnb">import</span> <span class="tnt">pygments.lexers</span>
+<span class="tnb">import</span> <span class="tnt">pygments.token</span>
+<span class="tnb">import</span> <span class="tnt">re</span>
+<span class="tnb">import</span> <span class="tnt">subprocess</span>
+<span class="tnb">import</span> <span class="tnt">sys</span>
+<span class="tnb">import</span> <span class="tnt">tempfile</span>
+<span class="tnb">import</span> <span class="tnt">urllib.parse</span>
+
+<span class="tn">pygments_classmap</span> = {
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Comment</span>: <span class="ts">"tc"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Keyword</span>: <span class="ts">"tnb"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Literal</span>.<span class="tn">Double</span>: <span class="ts">"ts"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Literal</span>.<span class="tn">Interpol</span>: <span class="ts">"ts"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Literal</span>.<span class="tn">Number</span>: <span class="ts">"tl"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Literal</span>.<span class="tn">String</span>: <span class="ts">"ts"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Builtin</span>: <span class="ts">"tnb"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Exception</span>: <span class="ts">"tne"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Tag</span>: <span class="ts">"tnt"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Namespace</span>: <span class="ts">"tnt"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Variable</span>.<span class="tn">Class</span>: <span class="ts">"tnvc"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Variable</span>: <span class="ts">"tnv"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Class</span>: <span class="ts">"tnv"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Function</span>: <span class="ts">"tnv"</span>,
+    <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>: <span class="ts">"tn"</span>
+}
+<span class="tnb">for</span> <span class="tn">tok</span>, <span class="tn">classname</span> in <span class="tnb">list</span>(<span class="tn">pygments_classmap</span>.<span class="tn">items</span>()):
+    <span class="tn">todo</span> = <span class="tnb">list</span>(<span class="tn">tok</span>.<span class="tn">subtypes</span>)
+    <span class="tnb">while</span> <span class="tn">todo</span>:
+        <span class="tn">tok</span> = <span class="tn">todo</span>.<span class="tn">pop</span>()
+        <span class="tnb">if</span> <span class="tn">tok</span> not in <span class="tn">pygments_classmap</span>:
+            <span class="tn">pygments_classmap</span>[<span class="tn">tok</span>] = <span class="tn">classname</span>
+            <span class="tn">todo</span>.<span class="tn">extend</span>(<span class="tn">tok</span>.<span class="tn">subtypes</span>)
+
+<span class="tn">escape_html_map</span> = {
+    <span class="tnb">ord</span>(<span class="ts">'&amp;'</span>): <span class="ts">'&amp;amp;'</span>,
+    <span class="tnb">ord</span>(<span class="ts">'&lt;'</span>): <span class="ts">'&amp;lt;'</span>,
+    <span class="tnb">ord</span>(<span class="ts">'&gt;'</span>): <span class="ts">'&amp;gt;'</span>
+}
+
+<span class="tnb">def</span> <span class="tnv">escape_html</span>(<span class="tn">text</span>):
+    <span class="tnb">return</span> <span class="tn">text</span>.<span class="tn">translate</span>(<span class="tn">escape_html_map</span>)
+
+<span class="tn">escape_html_attr_map</span> = {
+    <span class="tnb">ord</span>(<span class="ts">"'"</span>): <span class="ts">'&amp;#39;'</span>,
+    <span class="tnb">ord</span>(<span class="ts">'"'</span>): <span class="ts">'&amp;quot;'</span>,
+    <span class="tnb">ord</span>(<span class="ts">'&amp;'</span>): <span class="ts">'&amp;amp;'</span>,
+    <span class="tnb">ord</span>(<span class="ts">'&lt;'</span>): <span class="ts">'&amp;lt;'</span>,
+    <span class="tnb">ord</span>(<span class="ts">'&gt;'</span>): <span class="ts">'&amp;gt;'</span>
+}
+
+<span class="tnb">def</span> <span class="tnv">escape_html_attr</span>(<span class="tn">text</span>):
+    <span class="tnb">return</span> <span class="tn">text</span>.<span class="tn">translate</span>(<span class="tn">escape_html_attr_map</span>)</pre>
+<h2 id="LatexRendering">LaTeX rendering</h2>
+<pre><span class="tnb">def</span> <span class="tnv">latex_to_svg</span>(<span class="tn">fragments</span>):
+    <span class="tnb">with</span> <span class="tn">tempfile</span>.<span class="tn">TemporaryDirectory</span>(<span class="tn">prefix</span>=<span class="ts">"latex2svg"</span>) <span class="tnb">as</span> <span class="tn">tmpdir</span>:
+        <span class="tn">os</span>.<span class="tn">system</span>(<span class="ts">f</span><span class="ts">"cp -a all.tikzdefs all.tikzstyles '</span><span class="ts">{</span><span class="tn">tmpdir</span><span class="ts">}</span><span class="ts">/'"</span>)
+        <span class="tnb">with</span> <span class="tnb">open</span>(<span class="tn">os</span>.<span class="tn">path</span>.<span class="tn">join</span>(<span class="tn">tmpdir</span>, <span class="ts">"main.tex"</span>), <span class="ts">"w"</span>) <span class="tnb">as</span> <span class="tn">f</span>:
+            <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">LATEX_PREFIX</span>)
+            <span class="tnb">for</span> <span class="tn">fragment</span> in <span class="tn">fragments</span>:
+                <span class="tnb">if</span> <span class="tn">fragment</span>.<span class="tn">startswith</span>(<span class="ts">"$$"</span>):
+                    <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">"</span><span class="ts">\\</span><span class="ts">begin</span><span class="ts">{preview}</span><span class="ts">$\displaystyle "</span> + <span class="tn">fragment</span>.<span class="tn">strip</span>(<span class="ts">"$"</span>) + <span class="ts">"$</span><span class="ts">\\</span><span class="ts">end</span><span class="ts">{preview}</span><span class="ts">\n</span><span class="ts">"</span>)
+                <span class="tnb">else</span>:
+                    <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">"</span><span class="ts">\\</span><span class="ts">begin</span><span class="ts">{preview}</span><span class="ts">"</span> + <span class="tn">fragment</span> + <span class="ts">"</span><span class="ts">\\</span><span class="ts">end</span><span class="ts">{preview}</span><span class="ts">\n</span><span class="ts">"</span>)
+            <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">LATEX_SUFFIX</span>)
+        <span class="tn">proc</span> = <span class="tn">subprocess</span>.<span class="tn">run</span>(
+                [<span class="ts">"pdflatex"</span>, <span class="ts">"-output-directory"</span>, <span class="tn">tmpdir</span>, <span class="ts">"main.tex"</span>], <span class="tn">encoding</span>=<span class="ts">"utf8"</span>,
+                <span class="tn">stdin</span>=<span class="tn">subprocess</span>.<span class="tn">DEVNULL</span>, <span class="tn">stdout</span>=<span class="tn">subprocess</span>.<span class="tn">PIPE</span>)
+        <span class="tnb">if</span> <span class="tn">proc</span>.<span class="tn">returncode</span> != <span class="tl">0</span>:
+            <span class="tn">subprocess</span>.<span class="tn">run</span>([<span class="ts">"cat"</span>, <span class="ts">"main.tex"</span>], <span class="tn">cwd</span>=<span class="tn">tmpdir</span>)
+            <span class="tnb">print</span>(<span class="tn">proc</span>.<span class="tn">stdout</span>)
+            <span class="tnb">raise</span> <span class="tne">OSError</span>(<span class="ts">f</span><span class="ts">"pdflatex failed with code </span><span class="ts">{</span><span class="tn">proc</span>.<span class="tn">returncode</span><span class="ts">}</span><span class="ts">"</span>)
+        <span class="tn">depth</span> = {}
+        <span class="tnb">for</span> <span class="tn">m</span> in <span class="tn">re</span>.<span class="tn">finditer</span>(<span class="ts">"Preview: Snippet ([0-9]+) ([0-9]+) ([0-9]+) ([0-9]+)"</span>, <span class="tn">proc</span>.<span class="tn">stdout</span>):
+            <span class="tn">depth</span>[<span class="tnb">int</span>(<span class="tn">m</span>.<span class="tn">group</span>(<span class="tl">1</span>))] = <span class="tnb">float</span>(<span class="tn">m</span>.<span class="tn">group</span>(<span class="tl">3</span>))/<span class="tl">65536</span> + <span class="tl">0.1</span>
+        <span class="tnb">for</span> <span class="tn">i</span> in <span class="tnb">range</span>(<span class="tl">1</span>, <span class="tl">1</span>+<span class="tnb">len</span>(<span class="tn">fragments</span>)):
+            <span class="tn">subprocess</span>.<span class="tn">check_call</span>([<span class="ts">"pdf2svg"</span>, <span class="ts">"main.pdf"</span>, <span class="ts">f</span><span class="ts">"</span><span class="ts">{</span><span class="tn">i</span><span class="ts">}</span><span class="ts">.svg"</span>, <span class="ts">f</span><span class="ts">"</span><span class="ts">{</span><span class="tn">i</span><span class="ts">}</span><span class="ts">"</span>], <span class="tn">cwd</span>=<span class="tn">tmpdir</span>)
+            <span class="tn">subprocess</span>.<span class="tn">check_call</span>([<span class="ts">"scour"</span>,
+                <span class="ts">"--create-groups"</span>,
+                <span class="ts">"--enable-comment-stripping"</span>,
+                <span class="ts">"--enable-id-stripping"</span>,
+                <span class="ts">"--enable-viewboxing"</span>,
+                <span class="ts">"--indent=none"</span>,
+                <span class="ts">"--no-line-breaks"</span>,
+                <span class="ts">"--shorten-ids"</span>,
+                <span class="ts">"--strip-xml-prolog"</span>,
+                <span class="ts">f</span><span class="ts">"</span><span class="ts">{</span><span class="tn">i</span><span class="ts">}</span><span class="ts">.svg"</span>, <span class="ts">f</span><span class="ts">"</span><span class="ts">{</span><span class="tn">i</span><span class="ts">}</span><span class="ts">o.svg"</span>], <span class="tn">cwd</span>=<span class="tn">tmpdir</span>, <span class="tn">stdout</span>=<span class="tn">subprocess</span>.<span class="tn">DEVNULL</span>)
+        <span class="tn">results</span> = []
+        <span class="tnb">for</span> <span class="tn">i</span> in <span class="tnb">range</span>(<span class="tl">1</span>, <span class="tl">1</span>+<span class="tnb">len</span>(<span class="tn">fragments</span>)):
+            <span class="tn">classname</span> = <span class="ts">"class=</span><span class="ts">\"</span><span class="ts">display</span><span class="ts">\"</span><span class="ts"> "</span> <span class="tnb">if</span> <span class="tn">fragments</span>[<span class="tn">i</span>-<span class="tl">1</span>].<span class="tn">startswith</span>(<span class="ts">"$$"</span>) <span class="tnb">else</span> <span class="ts">""</span>
+            <span class="tn">alt</span> = <span class="tn">escape_html_attr</span>(<span class="tn">fragments</span>[<span class="tn">i</span>-<span class="tl">1</span>].<span class="tn">strip</span>(<span class="ts">"$ </span><span class="ts">\n</span><span class="ts">"</span>))
+            <span class="tnb">with</span> <span class="tnb">open</span>(<span class="tn">os</span>.<span class="tn">path</span>.<span class="tn">join</span>(<span class="tn">tmpdir</span>, <span class="ts">f</span><span class="ts">"</span><span class="ts">{</span><span class="tn">i</span><span class="ts">}</span><span class="ts">o.svg"</span>), <span class="ts">"r"</span>) <span class="tnb">as</span> <span class="tn">f</span>:
+                <span class="tn">svg</span> = <span class="tn">urllib</span>.<span class="tn">parse</span>.<span class="tn">quote</span>(<span class="tn">f</span>.<span class="tn">read</span>().<span class="tn">strip</span>())
+                <span class="tn">img</span> = <span class="ts">f</span><span class="ts">"&lt;img alt=</span><span class="ts">\"</span><span class="ts">{</span><span class="tn">alt</span><span class="ts">}</span><span class="ts">\"</span><span class="ts"> </span><span class="ts">{</span><span class="tn">classname</span><span class="ts">}</span><span class="ts">style=</span><span class="ts">\"</span><span class="ts">vertical-align:-</span><span class="ts">{</span><span class="tn">depth</span>[<span class="tn">i</span>]<span class="ts">}</span><span class="ts">pt</span><span class="ts">\"</span><span class="ts"> src=</span><span class="ts">\"</span><span class="ts">data:image/svg+xml,</span><span class="ts">{</span><span class="tn">svg</span><span class="ts">}</span><span class="ts">\"</span><span class="ts">/&gt;"</span>
+                <span class="tn">results</span>.<span class="tn">append</span>(<span class="tn">img</span>)
+        <span class="tnb">return</span> <span class="tn">results</span></pre>
+<h2 id="MarkdownIECommentParsingAndRendering">Markdown (i.e. comment) parsing and rendering</h2>
+<p>The way this was supposed to work is that in markdown_headers
+we would preparse Markdown, figure out the complete section
+structure, and fill in the xref. Then in markdown_render we
+would render the AST that was parsed here. Unfortunately no
+Python library actually provides usable AST for Markdown, which
+is why we will be parsing the text twice, and which is also why
+there is a duplication of code between DocPreRenderer and DocRenderer.</p>
+<pre><span class="tnb">class</span> <span class="tnv">CrossReferenceToken</span>(<span class="tn">mistletoe</span>.<span class="tn">span_token</span>.<span class="tn">SpanToken</span>):
+    <span class="tn">pattern</span> = <span class="tn">re</span>.<span class="tn">compile</span>(<span class="ts">r</span><span class="ts">"\[\[ *(.+?) *\]\]"</span>)
+    <span class="tnb">def</span> <span class="tnv">__init__</span>(<span class="tnb">self</span>, <span class="tn">match</span>):
+        <span class="tnb">self</span>.<span class="tn">target</span> = <span class="tn">match</span>.<span class="tn">group</span>(<span class="tl">1</span>)
+
+<span class="tnb">class</span> <span class="tnv">MathToken</span>(<span class="tn">mistletoe</span>.<span class="tn">span_token</span>.<span class="tn">SpanToken</span>):
+    <span class="tn">pattern</span> = <span class="tn">re</span>.<span class="tn">compile</span>(<span class="ts">r</span><span class="ts">'(\${1,2})([^$]+?)\1'</span>)
+    <span class="tn">parse_inner</span> = <span class="tnb">False</span>
+    <span class="tn">parse_group</span> = <span class="tl">0</span>
+
+<span class="tnb">def</span> <span class="tnv">name_to_id</span>(<span class="tn">text</span>):
+    <span class="tnb">return</span> <span class="ts">""</span>.<span class="tn">join</span>(<span class="tn">word</span>.<span class="tn">capitalize</span>() <span class="tnb">for</span> <span class="tn">word</span> in <span class="tn">re</span>.<span class="tn">split</span>(<span class="ts">"</span><span class="ts">\\</span><span class="ts">W+"</span>, <span class="tn">text</span>))
+
+<span class="tnb">class</span> <span class="tnv">DocPreRenderer</span>(<span class="tn">mistletoe</span>.<span class="tn">HTMLRenderer</span>):
+    <span class="tnb">def</span> <span class="tnv">__init__</span>(<span class="tnb">self</span>, <span class="tn">url</span>, <span class="tn">xref</span>):
+        <span class="tnb">super</span>().<span class="tnv">__init__</span>(<span class="tn">CrossReferenceToken</span>, <span class="tn">MathToken</span>)
+        <span class="tnb">self</span>.<span class="tn">_toc</span> = []
+        <span class="tnb">self</span>.<span class="tn">_url</span> = <span class="tn">url</span>
+        <span class="tnb">self</span>.<span class="tn">_xref</span> = <span class="tn">xref</span>
+    <span class="tnb">def</span> <span class="tnv">render_math_token</span>(<span class="tnb">self</span>, <span class="tn">token</span>):
+        <span class="tnb">return</span> <span class="ts">""</span>
+    <span class="tnb">def</span> <span class="tnv">render_heading</span>(<span class="tnb">self</span>, <span class="tn">token</span>):
+        <span class="tn">inner</span> = <span class="tnb">self</span>.<span class="tn">render_inner</span>(<span class="tn">token</span>)
+        <span class="tn">title</span> = <span class="tn">re</span>.<span class="tn">sub</span>(<span class="ts">r</span><span class="ts">'&lt;.+?&gt;'</span>, <span class="ts">''</span>, <span class="tn">inner</span>)
+        <span class="tnb">self</span>.<span class="tn">_toc</span>.<span class="tn">append</span>((<span class="tn">token</span>.<span class="tn">level</span>, <span class="tn">title</span>))
+        <span class="tnb">self</span>.<span class="tn">_xref</span>[<span class="tn">title</span>] = (<span class="tnb">self</span>.<span class="tn">_url</span>, <span class="ts">"#"</span> + <span class="tn">name_to_id</span>(<span class="tn">title</span>))
+        <span class="tnb">return</span> <span class="ts">""</span>
+
+<span class="tnb">class</span> <span class="tnv">DocRenderer</span>(<span class="tn">mistletoe</span>.<span class="tn">HTMLRenderer</span>):
+    <span class="tnb">def</span> <span class="tnv">__init__</span>(<span class="tnb">self</span>, <span class="tn">url</span>, <span class="tn">xref</span>, <span class="tn">toc</span>, <span class="tn">code_language</span>=<span class="ts">"wl"</span>):
+        <span class="tnb">super</span>().<span class="tnv">__init__</span>(<span class="tn">CrossReferenceToken</span>, <span class="tn">MathToken</span>)
+        <span class="tnb">self</span>.<span class="tn">_url</span> = <span class="tn">url</span>
+        <span class="tnb">self</span>.<span class="tn">_xref</span> = <span class="tn">xref</span>
+        <span class="tnb">self</span>.<span class="tn">_toc</span> = <span class="tn">toc</span>
+        <span class="tnb">self</span>.<span class="tn">_code_language</span> = <span class="tn">code_language</span>
+        <span class="tnb">self</span>.<span class="tn">_headers</span> = []
+    <span class="tnb">def</span> <span class="tnv">render_heading</span>(<span class="tnb">self</span>, <span class="tn">token</span>):
+        <span class="tn">inner</span> = <span class="tnb">self</span>.<span class="tn">render_inner</span>(<span class="tn">token</span>)
+        <span class="tn">title</span> = <span class="tn">re</span>.<span class="tn">sub</span>(<span class="ts">r</span><span class="ts">'&lt;.+?&gt;'</span>, <span class="ts">''</span>, <span class="tn">inner</span>)
+        <span class="tnb">self</span>.<span class="tn">_headers</span>.<span class="tn">append</span>((<span class="tn">token</span>.<span class="tn">level</span>, <span class="tn">title</span>))
+        <span class="tnb">return</span> <span class="ts">f</span><span class="ts">'&lt;h</span><span class="ts">{</span><span class="tn">token</span>.<span class="tn">level</span><span class="ts">}</span><span class="ts"> id=</span><span class="ts">\"</span><span class="ts">{</span><span class="tn">name_to_id</span>(<span class="tn">title</span>)<span class="ts">}</span><span class="ts">\"</span><span class="ts">&gt;</span><span class="ts">{</span><span class="tn">inner</span><span class="ts">}</span><span class="ts">&lt;/h</span><span class="ts">{</span><span class="tn">token</span>.<span class="tn">level</span><span class="ts">}</span><span class="ts">&gt;'</span>
+    <span class="tnb">def</span> <span class="tnv">render_cross_reference_token</span>(<span class="tnb">self</span>, <span class="tn">token</span>):
+        <span class="tn">xrefvalue</span> = <span class="tnb">self</span>.<span class="tn">_xref</span>.<span class="tn">get</span>(<span class="tn">token</span>.<span class="tn">target</span>)
+        <span class="tnb">if</span> <span class="tn">xrefvalue</span> is not <span class="tnb">None</span>:
+            <span class="tn">target</span>, <span class="tnb">hash</span> = <span class="tn">xrefvalue</span>
+            <span class="tn">target</span> = <span class="tn">relurl</span>(<span class="tn">target</span>, <span class="tnb">self</span>.<span class="tn">_url</span>)
+            <span class="tn">inner</span> = <span class="tnb">self</span>.<span class="tn">render_inner</span>(<span class="tn">token</span>)
+            <span class="tnb">return</span> <span class="ts">f</span><span class="ts">"&lt;a href=</span><span class="ts">\"</span><span class="ts">{</span><span class="tn">target</span><span class="ts">}{</span><span class="tnb">hash</span><span class="ts">}</span><span class="ts">\"</span><span class="ts">&gt;</span><span class="ts">{</span><span class="tn">inner</span><span class="ts">}</span><span class="ts">&lt;/a&gt;"</span>
+        <span class="tnb">elif</span> <span class="tn">token</span>.<span class="tn">target</span> == <span class="ts">"table of contents"</span>:
+            <span class="tnb">with</span> <span class="tn">io</span>.<span class="tn">StringIO</span>() <span class="tnb">as</span> <span class="tn">f</span>:
+                <span class="tn">format_toc</span>(<span class="tn">f</span>, [<span class="tn">item</span> <span class="tnb">for</span> <span class="tn">item</span> in <span class="tnb">self</span>.<span class="tn">_toc</span> <span class="tnb">if</span> <span class="tn">item</span> not in <span class="tnb">self</span>.<span class="tn">_headers</span>], <span class="tnb">self</span>.<span class="tn">_xref</span>, <span class="tnb">self</span>.<span class="tn">_url</span>)
+                <span class="tnb">return</span> <span class="tn">f</span>.<span class="tn">getvalue</span>()
+        <span class="tnb">else</span>:
+            <span class="tnb">print</span>(<span class="ts">f</span><span class="ts">"WARNING: missing x-ref: </span><span class="ts">{</span><span class="tn">token</span>.<span class="tn">target</span><span class="ts">!r}</span><span class="ts">"</span>)
+            <span class="tnb">return</span> <span class="ts">"[["</span> + <span class="tnb">self</span>.<span class="tn">render_inner</span>(<span class="tn">token</span>) + <span class="ts">"]]"</span>
+    <span class="tnb">def</span> <span class="tnv">render_math_token</span>(<span class="tnb">self</span>, <span class="tn">token</span>):
+        <span class="tnb">return</span> <span class="tn">latex_to_svg</span>([<span class="tn">token</span>.<span class="tn">content</span>])[<span class="tl">0</span>]
+    <span class="tnb">def</span> <span class="tnv">render_block_code</span>(<span class="tnb">self</span>, <span class="tn">token</span>):
+        <span class="tn">inner</span> = <span class="tn">token</span>.<span class="tn">children</span>[<span class="tl">0</span>].<span class="tn">content</span>
+        <span class="tn">lexer</span> = <span class="tn">pygments</span>.<span class="tn">lexers</span>.<span class="tn">get_lexer_by_name</span>(<span class="tn">token</span>.<span class="tn">language</span> or <span class="tnb">self</span>.<span class="tn">_code_language</span>)
+        <span class="tn">tokens</span> = <span class="tn">pygments</span>.<span class="tn">lex</span>(<span class="tn">inner</span>, <span class="tn">lexer</span>)
+        <span class="tnb">with</span> <span class="tn">io</span>.<span class="tn">StringIO</span>() <span class="tnb">as</span> <span class="tn">f</span>:
+            <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">"&lt;pre class=</span><span class="ts">\"</span><span class="ts">doc</span><span class="ts">\"</span><span class="ts">&gt;"</span>)
+            <span class="tnb">for</span> <span class="tn">tok</span>, <span class="tn">value</span> in <span class="tn">tokens</span>:
+                <span class="tnb">cls</span> = <span class="tn">pygments_classmap</span>.<span class="tn">get</span>(<span class="tn">tok</span>, <span class="tnb">None</span>)
+                <span class="tnb">if</span> <span class="tn">tok</span> == <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Variable</span> and <span class="tn">value</span> in <span class="tnb">self</span>.<span class="tn">_xref</span>:
+                    <span class="tn">refurl</span>, <span class="tnb">hash</span> = <span class="tnb">self</span>.<span class="tn">_xref</span>[<span class="tn">value</span>]
+                    <span class="tn">refurl</span> = <span class="tn">relurl</span>(<span class="tn">refurl</span>, <span class="tnb">self</span>.<span class="tn">_url</span>)
+                    <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;a class=</span><span class="ts">\"</span><span class="ts">{</span><span class="tnb">cls</span><span class="ts">}</span><span class="ts">\"</span><span class="ts"> href=</span><span class="ts">\"</span><span class="ts">{</span><span class="tn">refurl</span><span class="ts">}{</span><span class="tnb">hash</span><span class="ts">}</span><span class="ts">\"</span><span class="ts">&gt;</span><span class="ts">{</span><span class="tn">escape_html</span>(<span class="tn">value</span>)<span class="ts">}</span><span class="ts">&lt;/a&gt;"</span>)
+                <span class="tnb">elif</span> <span class="tnb">cls</span> is not <span class="tnb">None</span>:
+                    <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;span class=</span><span class="ts">\"</span><span class="ts">{</span><span class="tnb">cls</span><span class="ts">}</span><span class="ts">\"</span><span class="ts">&gt;</span><span class="ts">{</span><span class="tn">escape_html</span>(<span class="tn">value</span>)<span class="ts">}</span><span class="ts">&lt;/span&gt;"</span>)
+                <span class="tnb">else</span>:
+                    <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">escape_html</span>(<span class="tn">value</span>))
+            <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">"&lt;/pre&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+            <span class="tnb">return</span> <span class="tn">f</span>.<span class="tn">getvalue</span>()
+
+<span class="tnb">def</span> <span class="tnv">markdown_headers</span>(<span class="tn">text</span>, <span class="tn">url</span>, <span class="tn">xref</span>):
+    <span class="tnb">with</span> <span class="tn">DocPreRenderer</span>(<span class="tn">url</span>, <span class="tn">xref</span>) <span class="tnb">as</span> <span class="tn">renderer</span>:
+        <span class="tn">renderer</span>.<span class="tn">render</span>(<span class="tn">mistletoe</span>.<span class="tn">Document</span>(<span class="tn">text</span>))
+        <span class="tnb">return</span> <span class="tn">renderer</span>.<span class="tn">_toc</span>
+
+<span class="tnb">def</span> <span class="tnv">markdown_render</span>(<span class="tn">text</span>, <span class="tn">url</span>, <span class="tn">xref</span>, <span class="tn">toc</span>):
+    <span class="tnb">with</span> <span class="tn">DocRenderer</span>(<span class="tn">url</span>, <span class="tn">xref</span>, <span class="tn">toc</span>) <span class="tnb">as</span> <span class="tn">renderer</span>:
+        <span class="tnb">return</span> <span class="tn">renderer</span>.<span class="tn">render</span>(<span class="tn">mistletoe</span>.<span class="tn">Document</span>(<span class="tn">text</span>))</pre>
+<h2 id="ParsingFormattingMathematica">Parsing/formatting: Mathematica</h2>
+<pre><span class="tn">Token_Doc</span> = <span class="tl">1</span>
+
+<span class="tnb">def</span> <span class="tnv">lexer_concat</span>(<span class="tn">lexer</span>):
+    <span class="tn">prevtok</span> = <span class="tnb">None</span>
+    <span class="tn">values</span> = []
+    <span class="tnb">for</span> <span class="tn">tok</span>, <span class="tn">value</span> in <span class="tn">lexer</span>:
+        <span class="tnb">if</span> <span class="tn">prevtok</span> == <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Comment</span>.<span class="tn">Single</span> and <span class="tn">value</span> == <span class="ts">"</span><span class="ts">\n</span><span class="ts">"</span>:
+            <span class="tn">values</span>.<span class="tn">append</span>(<span class="tn">value</span>)
+        <span class="tnb">elif</span> <span class="tn">tok</span> == <span class="tn">prevtok</span>:
+            <span class="tn">values</span>.<span class="tn">append</span>(<span class="tn">value</span>)
+        <span class="tnb">else</span>:
+            <span class="tnb">if</span> <span class="tn">values</span>:
+                <span class="tnb">yield</span> <span class="tn">prevtok</span>, <span class="ts">""</span>.<span class="tn">join</span>(<span class="tn">values</span>)
+            <span class="tn">prevtok</span> = <span class="tn">tok</span>
+            <span class="tn">values</span> = [<span class="tn">value</span>]
+    <span class="tnb">if</span> <span class="tn">values</span>:
+        <span class="tnb">yield</span> <span class="tn">prevtok</span>, <span class="ts">""</span>.<span class="tn">join</span>(<span class="tn">values</span>)
+
+<span class="tnb">def</span> <span class="tnv">lexer_with_lineinfo</span>(<span class="tn">lexer</span>):
+    <span class="tn">line</span> = <span class="tl">1</span>
+    <span class="tn">column</span> = <span class="tl">1</span>
+    <span class="tnb">for</span> <span class="tn">tok</span>, <span class="tn">value</span> in <span class="tn">lexer</span>:
+        <span class="tnb">yield</span> <span class="tn">tok</span>, <span class="tn">value</span>, <span class="tn">line</span>, <span class="tn">column</span>
+        <span class="tn">nnl</span> = <span class="tn">value</span>.<span class="tn">count</span>(<span class="ts">"</span><span class="ts">\n</span><span class="ts">"</span>)
+        <span class="tnb">if</span> <span class="tn">nnl</span>:
+            <span class="tn">line</span> += <span class="tn">nnl</span>
+            <span class="tn">column</span> = <span class="tnb">len</span>(<span class="tn">value</span>) - <span class="tn">value</span>.<span class="tn">rindex</span>(<span class="ts">"</span><span class="ts">\n</span><span class="ts">"</span>)
+        <span class="tnb">else</span>:
+            <span class="tn">column</span> += <span class="tnb">len</span>(<span class="tn">value</span>)
+
+<span class="tnb">def</span> <span class="tnv">preparse_mma</span>(<span class="tn">data</span>, <span class="tn">xref</span>, <span class="tn">srcfilename</span>, <span class="tn">url</span>, <span class="tn">toc</span>):
+    <span class="tn">tokens</span> = <span class="tnb">list</span>(<span class="tn">lexer_with_lineinfo</span>(<span class="tn">lexer_concat</span>(<span class="tn">pygments</span>.<span class="tn">lex</span>(<span class="tn">data</span>, <span class="tn">pygments</span>.<span class="tn">lexers</span>.<span class="tn">get_lexer_by_name</span>(<span class="ts">"wl"</span>)))))
+    <span class="tc">#tokens = list(lexer_concat(pygments.lex(data, mathematica.MathematicaLexer())))
+</span>    <span class="tn">tok_warn</span> = (<span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Error</span>,)
+    <span class="tn">tok_func</span> = (<span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Variable</span>,)
+    <span class="tn">tok_comm</span> = (<span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Comment</span>,)
+    <span class="tnb">for</span> <span class="tn">i</span> in <span class="tnb">range</span>(<span class="tnb">len</span>(<span class="tn">tokens</span>)):
+        <span class="tn">tok</span>, <span class="tn">value</span>, <span class="tn">lin</span>, <span class="tn">col</span> = <span class="tn">tokens</span>[<span class="tn">i</span>]
+        <span class="tnb">if</span> <span class="tn">tok</span> in <span class="tn">tok_warn</span>:
+            <span class="tnb">print</span>(<span class="ts">f</span><span class="ts">"Warning: syntax error at </span><span class="ts">{</span><span class="tn">url</span><span class="ts">}</span><span class="ts">:</span><span class="ts">{</span><span class="tn">lin</span><span class="ts">}</span><span class="ts">:</span><span class="ts">{</span><span class="tn">col</span><span class="ts">}</span><span class="ts">, token </span><span class="ts">{</span><span class="tn">value</span><span class="ts">!r}</span><span class="ts">"</span>)
+        <span class="tnb">if</span> <span class="tn">col</span> == <span class="tl">1</span> and <span class="tn">tok</span> in <span class="tn">tok_comm</span>:
+            <span class="tnb">if</span> <span class="tn">i</span>+<span class="tl">2</span> &lt; <span class="tnb">len</span>(<span class="tn">tokens</span>):
+                <span class="tn">tok2</span>, <span class="tn">value2</span>, <span class="tn">_</span>, <span class="tn">_</span> = <span class="tn">tokens</span>[<span class="tn">i</span>+<span class="tl">1</span>]
+                <span class="tn">tok3</span>, <span class="tn">value3</span>, <span class="tn">_</span>, <span class="tn">_</span> = <span class="tn">tokens</span>[<span class="tn">i</span>+<span class="tl">2</span>]
+                <span class="tnb">if</span> <span class="tn">value2</span> == <span class="ts">"</span><span class="ts">\n</span><span class="ts">"</span> and <span class="tn">tok3</span> in <span class="tn">tok_func</span>:
+                    <span class="tnb">if</span> <span class="tn">value3</span> not in <span class="tn">xref</span>:
+                        <span class="tn">xref</span>[<span class="tn">value3</span>] = (<span class="tn">url</span>, <span class="ts">"#"</span> + <span class="tn">value3</span>)
+                        <span class="tn">toc</span>.<span class="tn">append</span>((<span class="tl">3</span>, <span class="tn">value3</span>))
+                        <span class="tnb">yield</span> <span class="tn">Token_Doc</span>, <span class="ts">f</span><span class="ts">"&lt;h3 id=</span><span class="ts">\"</span><span class="ts">{</span><span class="tn">value3</span><span class="ts">}</span><span class="ts">\"</span><span class="ts">&gt;&lt;code&gt;</span><span class="ts">{</span><span class="tn">value3</span><span class="ts">}</span><span class="ts">[]&lt;/code&gt;&lt;/h3&gt;</span><span class="ts">\n</span><span class="ts">"</span>
+                    <span class="tnb">else</span>:
+                        <span class="tn">xurl</span>, <span class="tn">xhash</span> = <span class="tn">xref</span>[<span class="tn">value3</span>]
+                        <span class="tnb">print</span>(<span class="ts">f</span><span class="ts">"Warning: name </span><span class="ts">{</span><span class="tn">value3</span><span class="ts">!r}</span><span class="ts"> at </span><span class="ts">{</span><span class="tn">url</span><span class="ts">}</span><span class="ts">:</span><span class="ts">{</span><span class="tn">lin</span><span class="ts">}</span><span class="ts"> was already defined in </span><span class="ts">{</span><span class="tn">xurl</span><span class="ts">}</span><span class="ts">"</span>)
+        <span class="tnb">if</span> <span class="tn">col</span> == <span class="tl">1</span> and <span class="tn">tok</span> in <span class="tn">tok_comm</span>:
+            <span class="tn">value</span> = <span class="tn">strip_comment</span>(<span class="tn">value</span>)
+            <span class="tn">toc</span>.<span class="tn">extend</span>(<span class="tn">markdown_headers</span>(<span class="tn">value</span>, <span class="tn">url</span>, <span class="tn">xref</span>))
+            <span class="tnb">yield</span> <span class="tn">Token_Doc</span>, <span class="tn">value</span>
+        <span class="tnb">else</span>:
+            <span class="tnb">yield</span> <span class="tn">tok</span>, <span class="tn">value</span>
+
+<span class="tnb">def</span> <span class="tnv">strip_comment</span>(<span class="tn">value</span>):
+    <span class="tnb">if</span> <span class="tn">value</span>.<span class="tn">startswith</span>(<span class="ts">"(*"</span>): <span class="tn">value</span> = <span class="tn">value</span>[<span class="tl">2</span>:]
+    <span class="tnb">if</span> <span class="tn">value</span>.<span class="tn">endswith</span>(<span class="ts">"*)"</span>): <span class="tn">value</span> = <span class="tn">value</span>[:-<span class="tl">2</span>]
+    <span class="tn">value</span> = <span class="tn">value</span>.<span class="tn">strip</span>(<span class="ts">"</span><span class="ts">\n</span><span class="ts">"</span>)
+    <span class="tnb">return</span> <span class="ts">"</span><span class="ts">\n</span><span class="ts">"</span>.<span class="tn">join</span>([
+        <span class="tn">line</span>[<span class="tl">3</span>:] <span class="tnb">if</span> <span class="tn">line</span>.<span class="tn">startswith</span>(<span class="ts">" * "</span>) <span class="tnb">else</span> \
+        <span class="tn">line</span>[<span class="tl">2</span>:] <span class="tnb">if</span> <span class="tn">line</span>.<span class="tn">startswith</span>(<span class="ts">" *"</span>) <span class="tnb">else</span> \
+        <span class="tn">line</span>
+        <span class="tnb">for</span> <span class="tn">line</span> in <span class="tn">value</span>.<span class="tn">splitlines</span>()
+    ])
+
+<span class="tnb">def</span> <span class="tnv">relurl</span>(<span class="tn">url</span>, <span class="tn">baseurl</span>):
+    <span class="tn">url</span> = <span class="tn">url</span>.<span class="tn">split</span>(<span class="ts">"/"</span>)
+    <span class="tn">baseurl</span> = <span class="tn">baseurl</span>.<span class="tn">split</span>(<span class="ts">"/"</span>)
+    <span class="tn">n</span> = <span class="tl">0</span>
+    <span class="tnb">while</span> <span class="tn">n</span> &lt; <span class="tnb">len</span>(<span class="tn">url</span>) and <span class="tn">n</span> &lt; <span class="tnb">len</span>(<span class="tn">baseurl</span>) and <span class="tn">url</span>[<span class="tn">n</span>] == <span class="tn">baseurl</span>[<span class="tn">n</span>]: <span class="tn">n</span> += <span class="tl">1</span>
+    <span class="tnb">if</span> <span class="tn">url</span>[-<span class="tl">1</span>] == <span class="ts">"index.html"</span>: <span class="tn">url</span> = <span class="tn">url</span>[:-<span class="tl">1</span>] + [<span class="ts">""</span>]
+    <span class="tnb">return</span> <span class="ts">"/"</span>.<span class="tn">join</span>([<span class="ts">".."</span>] * (<span class="tnb">len</span>(<span class="tn">baseurl</span>) - <span class="tn">n</span> - <span class="tl">1</span>) + <span class="tn">url</span>[<span class="tn">n</span>:])
+
+<span class="tnb">def</span> <span class="tnv">format_toc</span>(<span class="tn">f</span>, <span class="tn">toc</span>, <span class="tn">xref</span>, <span class="tn">url</span>):
+    <span class="tn">level0</span> = <span class="tnb">min</span>(<span class="tn">lvl</span> <span class="tnb">for</span> <span class="tn">lvl</span>, <span class="tn">title</span> in <span class="tn">toc</span>) - <span class="tl">1</span>
+    <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">"&lt;nav&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+    <span class="tn">level</span> = <span class="tn">level0</span>
+    <span class="tnb">for</span> <span class="tn">lvl</span>, <span class="tn">title</span> in <span class="tn">toc</span>:
+        <span class="tnb">if</span> <span class="tn">level</span> &lt; <span class="tn">lvl</span>:
+            <span class="tnb">while</span> <span class="tn">level</span> &lt; <span class="tn">lvl</span>:
+                <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">"&lt;ul&gt;&lt;li&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+                <span class="tn">level</span> += <span class="tl">1</span>
+        <span class="tnb">elif</span> <span class="tn">level</span> &gt; <span class="tn">lvl</span>:
+            <span class="tnb">while</span> <span class="tn">level</span> &gt; <span class="tn">lvl</span>:
+                <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">"&lt;/li&gt;&lt;/ul&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+                <span class="tn">level</span> -= <span class="tl">1</span>
+            <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">"&lt;/li&gt;&lt;li&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+        <span class="tnb">else</span>:
+            <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">"&lt;/li&gt;&lt;li&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+        <span class="tn">refurl</span>, <span class="tnb">hash</span> = <span class="tn">xref</span>[<span class="tn">title</span>]
+        <span class="tn">refurl</span> = <span class="tn">relurl</span>(<span class="tn">refurl</span>, <span class="tn">url</span>)
+        <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">" &lt;a href=</span><span class="ts">\"</span><span class="ts">{</span><span class="tn">refurl</span><span class="ts">}{</span><span class="tnb">hash</span><span class="ts">}</span><span class="ts">\"</span><span class="ts">&gt;</span><span class="ts">{</span><span class="tn">title</span><span class="ts">}</span><span class="ts">&lt;/a&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+    <span class="tnb">while</span> <span class="tn">level</span> &gt; <span class="tn">level0</span>:
+        <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">"&lt;/li&gt;&lt;/ul&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+        <span class="tn">level</span> -= <span class="tl">1</span>
+    <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">"&lt;/nav&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+
+<span class="tnb">def</span> <span class="tnv">tokens_strip_code</span>(<span class="tn">tokens</span>):
+    <span class="tnb">for</span> <span class="tn">i</span>, (<span class="tn">tok</span>, <span class="tn">value</span>) in <span class="tnb">enumerate</span>(<span class="tn">tokens</span>):
+        <span class="tnb">if</span> <span class="tn">tok</span> != <span class="tn">Token_Doc</span>:
+            <span class="tnb">if</span> <span class="tn">i</span>-<span class="tl">1</span> &gt;= <span class="tl">0</span> and <span class="tn">tokens</span>[<span class="tn">i</span>-<span class="tl">1</span>][<span class="tl">0</span>] == <span class="tn">Token_Doc</span>:
+                <span class="tn">value</span> = <span class="tn">re</span>.<span class="tn">sub</span>(<span class="ts">r</span><span class="ts">"\A\s*\n"</span>, <span class="ts">""</span>, <span class="tn">value</span>)
+            <span class="tnb">if</span> <span class="tn">i</span>+<span class="tl">1</span> &lt; <span class="tnb">len</span>(<span class="tn">tokens</span>) and <span class="tn">tokens</span>[<span class="tn">i</span>+<span class="tl">1</span>][<span class="tl">0</span>] == <span class="tn">Token_Doc</span>:
+                <span class="tn">value</span> = <span class="tn">re</span>.<span class="tn">sub</span>(<span class="ts">r</span><span class="ts">"\n\s*\Z"</span>, <span class="ts">""</span>, <span class="tn">value</span>)
+        <span class="tnb">if</span> <span class="tn">value</span> != <span class="ts">""</span>:
+            <span class="tnb">yield</span> <span class="tn">tok</span>, <span class="tn">value</span>
+
+<span class="tnb">def</span> <span class="tnv">format_mma</span>(<span class="tn">f</span>, <span class="tn">xref</span>, <span class="tn">url</span>, <span class="tn">tokens</span>, <span class="tn">toc</span>):
+    <span class="tn">title</span> = <span class="tn">toc</span>[<span class="tl">0</span>][<span class="tl">1</span>] <span class="tnb">if</span> <span class="tn">toc</span> <span class="tnb">else</span> <span class="tnb">None</span>
+    <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">HTML_HEAD</span>.<span class="tn">format</span>(<span class="tn">baseprefix</span>=<span class="tn">relurl</span>(<span class="ts">""</span>, <span class="tn">url</span>), <span class="tn">title</span>=<span class="tn">title</span>))
+    <span class="tn">lasttok</span> = <span class="tnb">None</span>
+    <span class="tnb">for</span> <span class="tn">tok</span>, <span class="tn">value</span> in <span class="tn">tokens_strip_code</span>(<span class="tn">tokens</span>):
+        <span class="tnb">if</span> <span class="tn">tok</span> == <span class="tn">Token_Doc</span>:
+            <span class="tnb">if</span> <span class="tn">lasttok</span> != <span class="tn">Token_Doc</span>:
+                <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;/pre&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+            <span class="tn">lasttok</span> = <span class="tn">tok</span>
+            <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">markdown_render</span>(<span class="tn">value</span>, <span class="tn">url</span>, <span class="tn">xref</span>, <span class="tn">toc</span>))
+        <span class="tnb">else</span>:
+            <span class="tnb">if</span> <span class="tn">lasttok</span> == <span class="tn">Token_Doc</span>:
+                <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;pre&gt;"</span>)
+            <span class="tn">lasttok</span> = <span class="tn">tok</span>
+            <span class="tnb">cls</span> = <span class="tn">pygments_classmap</span>.<span class="tn">get</span>(<span class="tn">tok</span>, <span class="tnb">None</span>)
+            <span class="tnb">if</span> <span class="tn">tok</span> == <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Variable</span>:
+                <span class="tnb">if</span> <span class="tn">value</span> in <span class="tn">xref</span>:
+                    <span class="tn">refurl</span>, <span class="tnb">hash</span> = <span class="tn">xref</span>[<span class="tn">value</span>]
+                    <span class="tn">refurl</span> = <span class="tn">relurl</span>(<span class="tn">refurl</span>, <span class="tn">url</span>)
+                    <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;a class=</span><span class="ts">\"</span><span class="ts">{</span><span class="tnb">cls</span><span class="ts">}</span><span class="ts">\"</span><span class="ts"> href=</span><span class="ts">\"</span><span class="ts">{</span><span class="tn">refurl</span><span class="ts">}{</span><span class="tnb">hash</span><span class="ts">}</span><span class="ts">\"</span><span class="ts">&gt;</span><span class="ts">{</span><span class="tn">escape_html</span>(<span class="tn">value</span>)<span class="ts">}</span><span class="ts">&lt;/a&gt;"</span>)
+                    <span class="tnb">continue</span>
+            <span class="tnb">if</span> <span class="tn">tok</span> == <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Name</span>.<span class="tn">Builtin</span>:
+                <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;a class=</span><span class="ts">\"</span><span class="ts">{</span><span class="tnb">cls</span><span class="ts">}</span><span class="ts">\"</span><span class="ts"> href=</span><span class="ts">\"</span><span class="ts">https://reference.wolfram.com/language/ref/</span><span class="ts">{</span><span class="tn">value</span><span class="ts">}</span><span class="ts">.html</span><span class="ts">\"</span><span class="ts"> rel=</span><span class="ts">\"</span><span class="ts">nofollow</span><span class="ts">\"</span><span class="ts">&gt;</span><span class="ts">{</span><span class="tn">escape_html</span>(<span class="tn">value</span>)<span class="ts">}</span><span class="ts">&lt;/a&gt;"</span>)
+                <span class="tnb">continue</span>
+            <span class="tnb">if</span> <span class="tnb">cls</span> is not <span class="tnb">None</span>:
+                <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;span class=</span><span class="ts">\"</span><span class="ts">{</span><span class="tnb">cls</span><span class="ts">}</span><span class="ts">\"</span><span class="ts">&gt;</span><span class="ts">{</span><span class="tn">escape_html</span>(<span class="tn">value</span>)<span class="ts">}</span><span class="ts">&lt;/span&gt;"</span>)
+            <span class="tnb">else</span>:
+                <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">escape_html</span>(<span class="tn">value</span>))
+    <span class="tnb">if</span> <span class="tn">lasttok</span> != <span class="tn">Token_Doc</span>:
+        <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;/pre&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+    <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">HTML_FOOT</span>)
+
+<span class="tn">MMA</span> = (<span class="tn">preparse_mma</span>, <span class="tn">format_mma</span>)</pre>
+<h2 id="ParsingFormattingMarkdown">Parsing/formatting: Markdown</h2>
+<pre><span class="tnb">def</span> <span class="tnv">preparse_md</span>(<span class="tn">data</span>, <span class="tn">xref</span>, <span class="tn">srcfilename</span>, <span class="tn">url</span>, <span class="tn">toc</span>):
+    <span class="tn">toc</span>.<span class="tn">extend</span>(<span class="tn">markdown_headers</span>(<span class="tn">data</span>, <span class="tn">url</span>, <span class="tn">xref</span>))
+    <span class="tnb">return</span> [<span class="tn">data</span>]
+
+<span class="tnb">def</span> <span class="tnv">format_md</span>(<span class="tn">f</span>, <span class="tn">xref</span>, <span class="tn">url</span>, <span class="tn">data</span>, <span class="tn">toc</span>):
+    <span class="tn">title</span> = <span class="tn">toc</span>[<span class="tl">0</span>][<span class="tl">1</span>] <span class="tnb">if</span> <span class="tn">toc</span> <span class="tnb">else</span> <span class="tnb">None</span>
+    <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">HTML_HEAD</span>.<span class="tn">format</span>(<span class="tn">baseprefix</span>=<span class="tn">relurl</span>(<span class="ts">""</span>, <span class="tn">url</span>), <span class="tn">title</span>=<span class="tn">title</span>))
+    <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">markdown_render</span>(<span class="tn">data</span>[<span class="tl">0</span>], <span class="tn">url</span>, <span class="tn">xref</span>, <span class="tn">toc</span>))
+    <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">HTML_FOOT</span>)
+
+<span class="tn">MD</span> = (<span class="tn">preparse_md</span>, <span class="tn">format_md</span>)</pre>
+<h2 id="ParsingFormattingGenericFormatWithLineCommentsVia">Parsing/formatting: generic format with line comments via #.</h2>
+<pre><span class="tnb">def</span> <span class="tnv">hash_strip_comment</span>(<span class="tn">value</span>):
+    <span class="tnb">return</span> <span class="ts">"</span><span class="ts">\n</span><span class="ts">"</span>.<span class="tn">join</span>([
+        <span class="tn">line</span>[<span class="tl">2</span>:] <span class="tnb">if</span> <span class="tn">line</span>.<span class="tn">startswith</span>(<span class="ts">"# "</span>) <span class="tnb">else</span> \
+        <span class="ts">""</span> <span class="tnb">if</span> <span class="tn">line</span> == <span class="ts">"#"</span> <span class="tnb">else</span> \
+        <span class="tn">line</span>
+        <span class="tnb">for</span> <span class="tn">line</span> in <span class="tn">value</span>.<span class="tn">splitlines</span>()
+    ])
+
+<span class="tnb">def</span> <span class="tnv">preparse_hash</span>(<span class="tn">data</span>, <span class="tn">xref</span>, <span class="tn">srcfilename</span>, <span class="tn">url</span>, <span class="tn">toc</span>):
+    <span class="tn">lexer</span> = <span class="tn">pygments</span>.<span class="tn">lexers</span>.<span class="tn">get_lexer_for_filename</span>(<span class="tn">srcfilename</span>)
+    <span class="tn">tokens</span> = <span class="tn">lexer_with_lineinfo</span>(<span class="tn">lexer_concat</span>(<span class="tn">pygments</span>.<span class="tn">lex</span>(<span class="tn">data</span>, <span class="tn">lexer</span>)))
+    <span class="tn">tok_skip</span> = (<span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Comment</span>.<span class="tn">Hashbang</span>,)
+    <span class="tn">tok_warn</span> = (<span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Error</span>,)
+    <span class="tn">tok_comm</span> = (<span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Comment</span>, <span class="tn">pygments</span>.<span class="tn">token</span>.<span class="tn">Token</span>.<span class="tn">Comment</span>.<span class="tn">Single</span>)
+    <span class="tnb">for</span> <span class="tn">tok</span>, <span class="tn">value</span>, <span class="tn">lin</span>, <span class="tn">col</span> in <span class="tn">tokens</span>:
+        <span class="tnb">if</span> <span class="tn">tok</span> in <span class="tn">tok_skip</span>:
+            <span class="tnb">continue</span>
+        <span class="tnb">if</span> <span class="tn">tok</span> in <span class="tn">tok_warn</span>:
+            <span class="tnb">print</span>(<span class="ts">f</span><span class="ts">"Warning: syntax error at </span><span class="ts">{</span><span class="tn">url</span><span class="ts">}</span><span class="ts">:</span><span class="ts">{</span><span class="tn">lin</span><span class="ts">}</span><span class="ts">:</span><span class="ts">{</span><span class="tn">col</span><span class="ts">}</span><span class="ts">, token </span><span class="ts">{</span><span class="tn">value</span><span class="ts">!r}</span><span class="ts">"</span>)
+        <span class="tnb">if</span> <span class="tn">col</span> == <span class="tl">1</span> and <span class="tn">tok</span> in <span class="tn">tok_comm</span>:
+            <span class="tn">value</span> = <span class="tn">hash_strip_comment</span>(<span class="tn">value</span>)
+            <span class="tn">toc</span>.<span class="tn">extend</span>(<span class="tn">markdown_headers</span>(<span class="tn">value</span>, <span class="tn">url</span>, <span class="tn">xref</span>))
+            <span class="tnb">yield</span> <span class="tn">Token_Doc</span>, <span class="tn">value</span>
+        <span class="tnb">else</span>:
+            <span class="tnb">yield</span> <span class="tn">tok</span>, <span class="tn">value</span>
+    <span class="tn">toc</span>.<span class="tn">extend</span>(<span class="tn">markdown_headers</span>(<span class="tn">data</span>, <span class="tn">url</span>, <span class="tn">xref</span>))
+
+<span class="tnb">def</span> <span class="tnv">format_hash</span>(<span class="tn">f</span>, <span class="tn">xref</span>, <span class="tn">url</span>, <span class="tn">tokens</span>, <span class="tn">toc</span>):
+    <span class="tn">title</span> = <span class="tn">toc</span>[<span class="tl">0</span>][<span class="tl">1</span>] <span class="tnb">if</span> <span class="tn">toc</span> <span class="tnb">else</span> <span class="tnb">None</span>
+    <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">HTML_HEAD</span>.<span class="tn">format</span>(<span class="tn">baseprefix</span>=<span class="tn">relurl</span>(<span class="ts">""</span>, <span class="tn">url</span>), <span class="tn">title</span>=<span class="tn">title</span>))
+    <span class="tn">lasttok</span> = <span class="tnb">None</span>
+    <span class="tnb">for</span> <span class="tn">tok</span>, <span class="tn">value</span> in <span class="tn">tokens_strip_code</span>(<span class="tn">tokens</span>):
+        <span class="tnb">if</span> <span class="tn">tok</span> == <span class="tn">Token_Doc</span>:
+            <span class="tnb">if</span> <span class="tn">lasttok</span> != <span class="tn">Token_Doc</span>:
+                <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;/pre&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+            <span class="tn">lasttok</span> = <span class="tn">tok</span>
+            <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">markdown_render</span>(<span class="tn">value</span>, <span class="tn">url</span>, <span class="tn">xref</span>, <span class="tn">toc</span>))
+        <span class="tnb">else</span>:
+            <span class="tnb">if</span> <span class="tn">lasttok</span> == <span class="tn">Token_Doc</span>:
+                <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;pre&gt;"</span>)
+            <span class="tn">lasttok</span> = <span class="tn">tok</span>
+            <span class="tnb">cls</span> = <span class="tn">pygments_classmap</span>.<span class="tn">get</span>(<span class="tn">tok</span>, <span class="tnb">None</span>)
+            <span class="tnb">if</span> <span class="tnb">cls</span> is not <span class="tnb">None</span>:
+                <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;span class=</span><span class="ts">\"</span><span class="ts">{</span><span class="tnb">cls</span><span class="ts">}</span><span class="ts">\"</span><span class="ts">&gt;</span><span class="ts">{</span><span class="tn">escape_html</span>(<span class="tn">value</span>)<span class="ts">}</span><span class="ts">&lt;/span&gt;"</span>)
+            <span class="tnb">else</span>:
+                <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">escape_html</span>(<span class="tn">value</span>))
+    <span class="tnb">if</span> <span class="tn">lasttok</span> != <span class="tn">Token_Doc</span>:
+        <span class="tn">f</span>.<span class="tn">write</span>(<span class="ts">f</span><span class="ts">"&lt;/pre&gt;</span><span class="ts">\n</span><span class="ts">"</span>)
+    <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">HTML_FOOT</span>)
+
+<span class="tn">HASH</span> = (<span class="tn">preparse_hash</span>, <span class="tn">format_hash</span>)</pre>
+<h2 id="Main">Main</h2>
+<pre><span class="tn">HTML_HEAD</span> = <span class="ts">"""</span><span class="ts">\
+</span><span class="ts">&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+ &lt;head&gt;
+  &lt;meta charset="UTF-8"&gt;
+  &lt;title&gt;</span><span class="ts">{title}</span><span class="ts">&lt;/title&gt;
+  &lt;meta name="viewport" content="width=device-width"&gt;
+  &lt;link rel="stylesheet" href="</span><span class="ts">{baseprefix}</span><span class="ts">style.css"&gt;
+  &lt;link rel="icon" href="</span><span class="ts">{baseprefix}</span><span class="ts">favicon.svg" type="image/svg+xml"&gt;
+ &lt;/head&gt;
+ &lt;body&gt;
+"""</span>
+
+<span class="tn">HTML_FOOT</span> = <span class="ts">"""</span><span class="ts">\
+</span><span class="ts">  &lt;/body&gt;
+&lt;/html&gt;
+"""</span>
+
+<span class="tn">STYLE_CSS</span> = <span class="ts">"""</span><span class="ts">\
+</span><span class="ts">html { background: white; color: #232627; box-sizing: border-box; }
+html { font-family: "Charter Web","Charter",serif; font-size: 18px; hyphens: auto; text-align: justify; line-height: 1.25; }
+img { filter: invert(0.15); }
+img.display { display: block; margin: 0 auto; }
+body { margin: 0 auto; padding: 0 10px; max-width: 800px; }
+h1:first-child { margin-top: 0px; }
+h1,h2,h3 { margin-top: 36px; margin-bottom: 12px; }
+pre,p,hr { margin-top: 0px; margin-bottom: 18px; }
+a { text-decoration: none; color: #2980b9; }
+a:hover, a:focus { text-decoration: underline; }
+pre, code { font-family: "Fira Mono Web","Fira Mono",monospace; }
+code { font-size: 90%; hyphens: none; }
+pre, pre code { font-size: 14px; }
+.tc { color: #969896; }
+.tl { color: #005cc5; }
+.ts { color: #0c9a9a; }
+.tn, .tnv, .tnvc { }
+.tnb { color: #d73a49; }
+.tne { color: red; }
+.tnt { color: #032f62; }
+pre { overflow-x: auto; padding: 0.5em; background: #f8f8f8;}
+pre.doc { margin-left: 1em; border-left: 0.3em solid #f0f0f8; padding-left: 1em; }
+ul ul { text-align: left; }
+ul ul li { display: inline; }
+ul ul li:after { content: " * "; color: #557; }
+ul ul li:last-child:after { content: ""; }
+hr { border: 2px dashed #efeef0; }
+@media screen and (prefers-color-scheme: dark) {
+ html { background: #111; color: #eee; }
+ img { filter: invert(0.93); }
+ pre { background: #222; }
+ pre.doc { border-left-color: #433; }
+ .tnt { color: #234f82; }
+}
+
+"""</span>
+
+<span class="tn">FAVICON_SVG</span> = <span class="ts">"""</span><span class="ts">\
+</span><span class="ts">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" height="10mm" width="10mm"&gt;
+ &lt;path style="fill:none;stroke:#ef6234;stroke-width:1.5;stroke-linejoin:bevel" d="M 1,9 5,1 9,9" /&gt;
+ &lt;path style="fill:none;stroke:#6b95ea;stroke-width:1.0" d="m 2.5,6 c 4,0 3.5,2 2.5,2 -1,0 -1.5,-2 2.5,-2" /&gt;
+ &lt;circle style="fill:#444;stroke:none" cx="2.5" cy="6" r="1" /&gt;
+ &lt;circle style="fill:#444;stroke:none" cx="7.5" cy="6" r="1" /&gt;
+&lt;/svg&gt;
+"""</span>
+
+<span class="tn">LATEX_PREFIX</span> = <span class="ts">r</span><span class="ts">"""
+\documentclass[a4paper,14pt]</span><span class="ts">{extarticle}</span><span class="ts">
+\usepackage[active,noconfig,pdftex,tightpage,lyx]</span><span class="ts">{preview}</span><span class="ts">
+\PreviewBorder=0.1pt
+\usepackage[charter]</span><span class="ts">{mathdesign}</span><span class="ts">
+\usepackage</span><span class="ts">{amsmath}</span><span class="ts">
+\input</span><span class="ts">{all.tikzdefs}</span><span class="ts">
+\input</span><span class="ts">{all.tikzstyles}</span><span class="ts">
+\begin</span><span class="ts">{document}</span><span class="ts">
+"""</span>
+
+<span class="tn">LATEX_SUFFIX</span> = <span class="ts">r</span><span class="ts">"""
+\end</span><span class="ts">{document}</span><span class="ts">
+"""</span>
+
+<span class="tnb">if</span> <span class="tnv">__name__</span> == <span class="ts">"__main__"</span>:
+
+    <span class="tnb">import</span> <span class="tnt">getopt</span>
+
+    <span class="tnb">def</span> <span class="tnv">usage</span>(<span class="tn">file</span>, <span class="tn">code</span>):
+        <span class="tnb">print</span>(<span class="ts">f</span><span class="ts">"usage: </span><span class="ts">{</span><span class="tn">sys</span>.<span class="tn">argv</span>[<span class="tl">0</span>]<span class="ts">}</span><span class="ts"> src-dir [dst-dir]"</span>, <span class="tn">file</span>=<span class="tn">file</span>)
+        <span class="tn">exit</span>(<span class="tl">0</span>)
+
+    <span class="tn">opts</span>, <span class="tn">args</span> = <span class="tn">getopt</span>.<span class="tn">gnu_getopt</span>(<span class="tn">sys</span>.<span class="tn">argv</span>[<span class="tl">1</span>:], <span class="ts">"h"</span>)
+    <span class="tnb">for</span> <span class="tn">opt</span>, <span class="tn">val</span> in <span class="tn">opts</span>:
+        <span class="tnb">if</span> <span class="tn">opt</span> == <span class="ts">"-h"</span>: <span class="tn">usage</span>(<span class="tn">sys</span>.<span class="tn">stdout</span>, <span class="tl">0</span>)
+    <span class="tnb">if</span> <span class="tnb">len</span>(<span class="tn">args</span>) == <span class="tl">1</span>:
+        <span class="tn">srcdir</span> = <span class="tn">args</span>[<span class="tl">0</span>]
+        <span class="tn">dstdir</span> = <span class="ts">"."</span>
+    <span class="tnb">elif</span> <span class="tnb">len</span>(<span class="tn">args</span>) == <span class="tl">2</span>:
+        <span class="tn">srcdir</span> = <span class="tn">args</span>[<span class="tl">0</span>]
+        <span class="tn">dstdir</span> = <span class="tn">args</span>[<span class="tl">1</span>]
+    <span class="tnb">else</span>:
+        <span class="tn">usage</span>(<span class="tn">sys</span>.<span class="tn">stderr</span>, <span class="tl">1</span>)
+
+    <span class="tnb">def</span> <span class="tnv">pattern</span>(<span class="tn">pat</span>):
+        <span class="tnb">return</span> <span class="tn">re</span>.<span class="tn">compile</span>(<span class="ts">"(.*)"</span>.<span class="tn">join</span>(<span class="tn">re</span>.<span class="tn">escape</span>(<span class="tn">p</span>) <span class="tnb">for</span> <span class="tn">p</span> in <span class="tn">pat</span>.<span class="tn">split</span>(<span class="ts">"*"</span>)), <span class="tn">re</span>.<span class="tn">DOTALL</span>)
+
+    <span class="tnb">def</span> <span class="tnv">sub_pattern</span>(<span class="tn">pat</span>, <span class="tn">tmpl</span>, <span class="tn">string</span>):
+        <span class="tn">m</span> = <span class="tn">pat</span>.<span class="tn">fullmatch</span>(<span class="tn">string</span>)
+        <span class="tnb">return</span> <span class="tnb">None</span> <span class="tnb">if</span> <span class="tn">m</span> is <span class="tnb">None</span> <span class="tnb">else</span> <span class="tn">tmpl</span>.<span class="tn">format</span>(<span class="tn">string</span>, *<span class="tn">m</span>.<span class="tn">groups</span>())
+
+    <span class="tn">config</span> = [
+        (<span class="tn">pattern</span>(<span class="ts">r</span><span class="ts">"*.m"</span>), <span class="ts">"</span><span class="ts">{1}</span><span class="ts">.html"</span>, <span class="tn">MMA</span>),
+        (<span class="tn">pattern</span>(<span class="ts">r</span><span class="ts">"README.md"</span>), <span class="ts">"index.html"</span>, <span class="tn">MD</span>),
+        (<span class="tn">pattern</span>(<span class="ts">r</span><span class="ts">"*/README.md"</span>), <span class="ts">"</span><span class="ts">{1}</span><span class="ts">/index.html"</span>, <span class="tn">MD</span>),
+        (<span class="tn">pattern</span>(<span class="ts">r</span><span class="ts">"*.md"</span>), <span class="ts">"</span><span class="ts">{1}</span><span class="ts">.html"</span>, <span class="tn">MD</span>),
+        (<span class="tn">pattern</span>(<span class="ts">r</span><span class="ts">"*.py"</span>), <span class="ts">"</span><span class="ts">{1}</span><span class="ts">.html"</span>, <span class="tn">HASH</span>),
+        (<span class="tn">pattern</span>(<span class="ts">r</span><span class="ts">"*.sh"</span>), <span class="ts">"</span><span class="ts">{1}</span><span class="ts">.html"</span>, <span class="tn">HASH</span>)
+    ]
+
+    <span class="tn">xref</span> = {}
+    <span class="tn">files</span> = []
+    <span class="tn">fulltoc</span> = []
+    <span class="tnb">for</span> <span class="tn">root</span>, <span class="tn">dirnames</span>, <span class="tn">filenames</span> in <span class="tn">os</span>.<span class="tn">walk</span>(<span class="tn">srcdir</span>):
+        <span class="tnb">for</span> <span class="tn">filename</span> in <span class="tn">filenames</span>:
+            <span class="tn">fullname</span> = <span class="tn">os</span>.<span class="tn">path</span>.<span class="tn">join</span>(<span class="tn">root</span>, <span class="tn">filename</span>)
+            <span class="tn">relpath</span> = <span class="tn">os</span>.<span class="tn">path</span>.<span class="tn">relpath</span>(<span class="tn">fullname</span>, <span class="tn">srcdir</span>)
+            <span class="tnb">for</span> <span class="tn">pat</span>, <span class="tn">tmpl</span>, (<span class="tn">preparse</span>, <span class="tnb">format</span>) in <span class="tn">config</span>:
+                <span class="tn">reldstpath</span> = <span class="tn">sub_pattern</span>(<span class="tn">pat</span>, <span class="tn">tmpl</span>, <span class="tn">relpath</span>)
+                <span class="tnb">if</span> <span class="tn">reldstpath</span> is not <span class="tnb">None</span>:
+                    <span class="tn">url</span> = <span class="tn">reldstpath</span> <span class="tnb">if</span> not <span class="tn">reldstpath</span>.<span class="tn">endswith</span>(<span class="ts">"index.html"</span>) <span class="tnb">else</span> \
+                          <span class="tn">os</span>.<span class="tn">path</span>.<span class="tn">dirname</span>(<span class="tn">reldstpath</span>)
+                    <span class="tnb">print</span>(<span class="ts">f</span><span class="ts">"read </span><span class="ts">{</span><span class="tn">relpath</span><span class="ts">}</span><span class="ts"> -&gt; </span><span class="ts">{</span><span class="tn">reldstpath</span><span class="ts">}</span><span class="ts">"</span>)
+                    <span class="tn">xref</span>[<span class="tn">relpath</span>] = (<span class="tn">url</span>, <span class="ts">""</span>)
+                    <span class="tnb">with</span> <span class="tnb">open</span>(<span class="tn">fullname</span>, <span class="ts">"r"</span>) <span class="tnb">as</span> <span class="tn">f</span>:
+                        <span class="tn">text</span> = <span class="tn">f</span>.<span class="tn">read</span>()
+                    <span class="tn">toc</span> = []
+                    <span class="tn">data</span> = <span class="tnb">list</span>(<span class="tn">preparse</span>(<span class="tn">text</span>, <span class="tn">xref</span>, <span class="tn">filename</span>, <span class="tn">url</span>, <span class="tn">toc</span>))
+                    <span class="tn">fulltoc</span>.<span class="tn">extend</span>(<span class="tn">toc</span>)
+                    <span class="tn">files</span>.<span class="tn">append</span>((<span class="tn">reldstpath</span>, <span class="tnb">format</span>, <span class="tn">url</span>, <span class="tn">data</span>, <span class="tn">toc</span>))
+                    <span class="tnb">break</span>
+
+    <span class="tnb">for</span> <span class="tn">reldstpath</span>, <span class="tnb">format</span>, <span class="tn">url</span>, <span class="tn">data</span>, <span class="tn">toc</span> in <span class="tn">files</span>:
+        <span class="tn">dstpath</span> = <span class="tn">os</span>.<span class="tn">path</span>.<span class="tn">join</span>(<span class="tn">dstdir</span>, <span class="tn">reldstpath</span>)
+        <span class="tn">dirname</span> = <span class="tn">os</span>.<span class="tn">path</span>.<span class="tn">dirname</span>(<span class="tn">dstpath</span>)
+        <span class="tnb">if</span> <span class="tn">dirname</span> and not <span class="tn">os</span>.<span class="tn">path</span>.<span class="tn">exists</span>(<span class="tn">dirname</span>):
+            <span class="tnb">print</span>(<span class="ts">"mkdir"</span>, <span class="tn">dirname</span>)
+            <span class="tn">os</span>.<span class="tn">mkdir</span>(<span class="tn">dirname</span>)
+        <span class="tnb">print</span>(<span class="ts">f</span><span class="ts">"format </span><span class="ts">{</span><span class="tn">dstpath</span><span class="ts">}</span><span class="ts"> (</span><span class="ts">{</span><span class="tn">url</span><span class="ts">}</span><span class="ts">)"</span>)
+        <span class="tnb">with</span> <span class="tnb">open</span>(<span class="tn">dstpath</span>, <span class="ts">"w"</span>) <span class="tnb">as</span> <span class="tn">f</span>:
+            <span class="tnb">format</span>(<span class="tn">f</span>, <span class="tn">xref</span>, <span class="tn">url</span>, <span class="tn">data</span>, <span class="tn">toc</span>)
+
+    <span class="tnb">def</span> <span class="tnv">create</span>(<span class="tn">relpath</span>, <span class="tn">content</span>):
+        <span class="tn">dstpath</span> = <span class="tn">os</span>.<span class="tn">path</span>.<span class="tn">join</span>(<span class="tn">dstdir</span>, <span class="tn">relpath</span>)
+        <span class="tn">dirname</span> = <span class="tn">os</span>.<span class="tn">path</span>.<span class="tn">dirname</span>(<span class="tn">dstpath</span>)
+        <span class="tnb">if</span> not <span class="tn">os</span>.<span class="tn">path</span>.<span class="tn">exists</span>(<span class="tn">dirname</span>):
+            <span class="tnb">print</span>(<span class="ts">"mkdir"</span>, <span class="tn">dirname</span>)
+            <span class="tn">os</span>.<span class="tn">mkdir</span>(<span class="tn">dirname</span>)
+        <span class="tnb">print</span>(<span class="ts">f</span><span class="ts">"create </span><span class="ts">{</span><span class="tn">dstpath</span><span class="ts">}</span><span class="ts">"</span>)
+        <span class="tnb">with</span> <span class="tnb">open</span>(<span class="tn">dstpath</span>, <span class="ts">"w"</span>) <span class="tnb">as</span> <span class="tn">f</span>:
+            <span class="tn">f</span>.<span class="tn">write</span>(<span class="tn">content</span>)
+
+    <span class="tn">create</span>(<span class="ts">"style.css"</span>, <span class="tn">STYLE_CSS</span>)
+    <span class="tn">create</span>(<span class="ts">"favicon.svg"</span>, <span class="tn">FAVICON_SVG</span>)
+</pre>
+  </body>
+</html>

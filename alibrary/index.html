@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+ <head>
+  <meta charset="UTF-8">
+  <title>Amplitude library</title>
+  <meta name="viewport" content="width=device-width">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+ </head>
+ <body>
+<h1 id="AmplitudeLibrary">Amplitude library</h1>
+<p>Pushing the boundaries of higher-loop amplitude calculations
+in quantum field theory is no easy task, and no recipe works
+for all. This means that one needs try different approaches,
+investigate, and iterate. To this end, one can’t use a prepackaged
+monolithic solution—one needs a library: <em>alibrary</em>.</p>
+<p><em>Alibrary</em> is a <a href="https://www.wolfram.com/mathematica/">Mathematica</a> library that provides functions to
+generate Feynman diagrams, insert Feynman rules, sum over tensor
+traces, construct IBP families, convert amplitudes to IBP notation,
+etc, etc. It acts as a central hub to call into <a href="http://cfif.ist.utl.pt/~paulo/qgraf.html">QGRAF</a>, <a href="https://graphviz.org/">GraphViz</a>,
+<a href="https://www.nikhef.nl/~form/">FORM</a> (with <a href="https://www.nikhef.nl/~form/maindir/packages/color/">color.h</a>), <a href="https://github.com/magv/feynson">Feynson</a>, <a href="https://www.inp.nsk.su/~lee/programs/LiteRed/">LiteRed</a> and <a href="https://bitbucket.org/feynmanIntegrals/fire/">FIRE</a>, <a href="https://gitlab.com/kira-pyred/kira">Kira</a>,
+<a href="https://github.com/gudrunhe/secdec">pySecDec</a>, etc, all while allowing you to develop interactively
+(in a <em>read-eval-print loop</em> or an interactive notebook), inspect
+and modify intermediate results, and generally progress towards
+building a solution to your problem one step at a time.</p>
+<p><em>Alibrary</em> tries to be light on abstraction. As much as possible
+it works with data in the standard Mathematica notation, so that
+each of its functions could be useful separately from the rest,
+and its data could be operated on using normal Mathematica
+commands. In other words: <em>alibrary</em> is a library, not a framework.</p>
+<p><em>Alibrary</em> is meant to be extended, modified, or simply learned
+from. Ultimately <em>you</em> are doing the calculation, <em>alibrary</em>
+is just one of the pieces of code you might be using. Its goal
+is not to be a big deal.</p>
+<p>Finally, <em>alibrary</em> aspires to be a learning resource, and have
+all of its internals obvious and documented, so that one could
+read and understand it without too much effort—this goal is
+a work in progress; sorry.</p>
+<h2 id="Documentation">Documentation</h2>
+<p>The documentation currently lives at <a href="https://magv.github.io/alibrary/">magv.github.io/alibrary</a>
+and consists of the following main annotated source files:</p>
+<ul>
+<li><a href="https://magv.github.io/alibrary/alibrary.html">alibrary.m</a>, the main library;</li>
+<li><a href="https://magv.github.io/alibrary/utils.html">utils.m</a>, the generic Mathematica helper functions;</li>
+<li><a href="https://magv.github.io/alibrary/atestsuite.html">atestsuite.m</a>, the test suite for the above;</li>
+<li><a href="https://magv.github.io/alibrary/amodel-qcd.html">amodel-qcd.m</a>, the QCD-like Feynman rules.</li>
+<li><a href="https://magv.github.io/alibrary/amodel-scalar.html">amodel-scalar.m</a>, Feynman rules for a simple scalar theory.</li>
+</ul>
+<p>And also the following auxiliary source files:</p>
+<ul>
+<li><a href="https://magv.github.io/alibrary/doc.html">doc.py</a>, the documentation generator;</li>
+<li><a href="https://magv.github.io/alibrary/kira.html">kira.sh</a>, the Kira command line wrapper;</li>
+<li><a href="https://magv.github.io/alibrary/library.html">library.m</a>, older code that is to be cleaned up and merged into <a href="https://magv.github.io/alibrary/alibrary.html">alibrary.m</a>.</li>
+</ul>
+<p>Finally, the following files remain undocumented:</p>
+<ul>
+<li>color.h;</li>
+<li>all.tikzdefs;</li>
+<li>all.tikzstyles;</li>
+<li>library.frm;</li>
+<li>qgraf-stylefile;</li>
+<li>tempwrap.</li>
+</ul>
+<p>The documentation is not really complete, but the plan is to
+gradually improve it.</p>
+<p>Additionally, the author gave a talk at <a href="https://indico.desy.de/event/26814/">CAPP 2021</a> about
+<a href="https://indico.desy.de/event/26814/contributions/94605/attachments/65148/80414/magerya-capp2021.pdf">Calculating loop amplitudes on a computer</a>: it describes how
+to build a library like <em>alibrary</em>. The <a href="https://indico.desy.de/event/26814/contributions/94605/attachments/65148/80413/magerya-capp2021.zip">code accompanying the
+talk</a> is in essence a simplified version of this library, so
+the presentation is an accurate description of the main ideas
+and intended usage.</p>
+<h3 id="ExampleUsage">Example usage</h3>
+<p>As an example of the common usage, please take a look at:</p>
+<ul>
+<li>the calculation of QCD corrections to a <a href="https://magv.github.io/alibrary/examples/photon-propagator.html">photon propagator</a>;</li>
+<li>an explanation on <a href="https://magv.github.io/alibrary/examples/diagrams.html">displaying diagrams</a>.</li>
+</ul>
+<h2 id="Installation">Installation</h2>
+<p>Download the source code, put it into a directory somewhere,
+and import it into your Mathematica session like this:</p>
+<pre class="doc"><span class="tnb">Get</span>[<span class="ts">"</span><span class="ts">/path/to/alibrary.m</span><span class="ts">"</span>];
+</pre>
+
+<p>Alternatively, to only import generic Mathematica functions
+(those that are not related to loop amplitudes), use this:</p>
+<pre class="doc"><span class="tnb">Get</span>[<span class="ts">"</span><span class="ts">/path/to/utils.m</span><span class="ts">"</span>];
+</pre>
+
+  </body>
+</html>

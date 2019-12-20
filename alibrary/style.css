@@ -1,0 +1,82 @@
+html { background: white; color: #232627; box-sizing: border-box; }
+html { font-family: "Charter Web","Charter",serif; font-size: 18px; hyphens: auto; text-align: justify; line-height: 1.25; }
+img { filter: invert(0.15); }
+img.display { display: block; margin: 0 auto; }
+body { margin: 0 auto; padding: 0 10px; max-width: 800px; }
+h1:first-child { margin-top: 0px; }
+h1,h2,h3 { margin-top: 36px; margin-bottom: 12px; }
+pre,p,hr { margin-top: 0px; margin-bottom: 18px; }
+a { text-decoration: none; color: #2980b9; }
+a:hover, a:focus { text-decoration: underline; }
+pre, code { font-family: "Fira Mono Web","Fira Mono",monospace; }
+code { font-size: 90%; hyphens: none; }
+pre, pre code { font-size: 14px; }
+.tc { color: #969896; }
+.tl { color: #005cc5; }
+.ts { color: #0c9a9a; }
+.tn, .tnv, .tnvc { }
+.tnb { color: #d73a49; }
+.tne { color: red; }
+.tnt { color: #032f62; }
+pre { overflow-x: auto; padding: 0.5em; background: #f8f8f8;}
+pre.doc { margin-left: 1em; border-left: 0.3em solid #f0f0f8; padding-left: 1em; }
+ul ul { text-align: left; }
+ul ul li { display: inline; }
+ul ul li:after { content: " * "; color: #557; }
+ul ul li:last-child:after { content: ""; }
+hr { border: 2px dashed #efeef0; }
+@media screen and (prefers-color-scheme: dark) {
+ html { background: #111; color: #eee; }
+ img { filter: invert(0.93); }
+ pre { background: #222; }
+ pre.doc { border-left-color: #433; }
+ .tnt { color: #234f82; }
+}
+
+@font-face {
+ font-family: Charter Web;
+ font-style: normal;
+ font-weight: normal;
+ font-stretch: normal;
+ src: url("../static/Charter-Regular.woff2") format("woff2");
+}
+
+@font-face {
+ font-family: Charter Web;
+ font-style: italic;
+ font-weight: normal;
+ font-stretch: normal;
+ src: url("../static/Charter-Italic.woff2") format("woff2");
+}
+
+@font-face {
+ font-family: Charter Web;
+ font-style: normal;
+ font-weight: bold;
+ font-stretch: normal;
+ src: url("../static/Charter-Bold.woff2") format("woff2");
+}
+
+@font-face {
+ font-family: Charter Web;
+ font-style: italic;
+ font-weight: bold;
+ font-stretch: normal;
+ src: url("../static/Charter-Bold-Italic.woff2") format("woff2");
+}
+
+@font-face {
+ font-family: Fira Mono Web;
+ font-style: normal;
+ font-weight: normal;
+ font-stretch: normal;
+ src: url("../static/FiraMono-Regular.woff2") format("woff2");
+}
+
+@font-face {
+ font-family: Fira Mono Web;
+ font-style: normal;
+ font-weight: bold;
+ font-stretch: normal;
+ src: url("../static/FiraMono-Bold.woff2") format("woff2");
+}

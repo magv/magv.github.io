@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+ <head>
+  <meta charset="UTF-8">
+  <title>kira.sh</title>
+  <meta name="viewport" content="width=device-width">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+ </head>
+ <body>
+</pre>
+<h1 id="KiraSh">kira.sh</h1>
+<p>This script is a wrapper around the <code>kira</code> executable that
+first copies the jobs file (along with its whole directory)
+into a temporary location, executes Kira there, and copies back
+the IBP tables (<code>result/*/*.m</code>) and <code>kira.log</code>. If Kira
+finishes successfully, this script will create a file called
+<code>done</code> next to the jobs file.</p>
+<p>The Kira binary being executed is <code>$KIRA</code> if that environment
+variable exists, otherwise just <code>kira</code>.</p>
+<pre><span class="tnb">if</span> [ <span class="tnv">$#</span> -lt <span class="tl">1</span> ]; <span class="tnb">then</span>
+    <span class="tnb">echo</span> <span class="ts">"usage: </span><span class="tnv">$0</span><span class="ts"> /path/to/jobs.yaml [kira-arguments] ..."</span> <span class="tl">1</span>&gt;&amp;<span class="tl">2</span>
+    <span class="tnb">exit</span> <span class="tl">1</span>
+<span class="tnb">fi</span>
+
+<span class="tnv">yaml</span>=<span class="ts">"</span><span class="tnv">$1</span><span class="ts">"</span>
+<span class="tnb">shift</span> <span class="tl">1</span>
+
+<span class="tnv">yamldir</span>=<span class="tnb">$(</span>dirname <span class="ts">"</span><span class="tnv">$yaml</span><span class="ts">"</span><span class="tnb">)</span>
+<span class="tnv">yamlbase</span>=<span class="tnb">$(</span>basename <span class="ts">"</span><span class="tnv">$yaml</span><span class="ts">"</span><span class="tnb">)</span>
+
+<span class="tnb">if</span> [ ! -e <span class="ts">"</span><span class="tnv">$yaml</span><span class="ts">"</span> -o ! -d <span class="ts">"</span><span class="tnv">$yamldir</span><span class="ts">"</span> ]; <span class="tnb">then</span>
+    <span class="tnb">echo</span> <span class="ts">"</span><span class="tnv">$0</span><span class="ts">: no such file as </span><span class="tnv">$yaml</span><span class="ts">"</span> <span class="tl">1</span>&gt;&amp;<span class="tl">2</span>
+    <span class="tnb">exit</span> <span class="tl">1</span>
+<span class="tnb">fi</span>
+
+<span class="tnv">tmpdir</span>=<span class="ts">"</span><span class="tnb">$(</span>mktemp -d<span class="tnb">)</span><span class="ts">"</span>
+cp -va <span class="ts">"</span><span class="tnv">$yamldir</span><span class="ts">/."</span> <span class="ts">"</span><span class="tnv">$tmpdir</span><span class="ts">/"</span> || <span class="tnb">exit</span> <span class="tl">1</span>
+(<span class="tnb">cd</span> <span class="ts">"</span><span class="tnv">$tmpdir</span><span class="ts">"</span> &amp;&amp; <span class="ts">${</span><span class="tnv">KIRA</span><span class="tnb">:-</span><span class="tnv">kira</span><span class="ts">}</span> <span class="ts">"</span><span class="tnv">$yamlbase</span><span class="ts">"</span> <span class="ts">"</span><span class="tnv">$@</span><span class="ts">"</span>)
+<span class="tnv">code</span>=<span class="ts">"</span><span class="tnv">$?</span><span class="ts">"</span>
+[ -e <span class="ts">"</span><span class="tnv">$tmpdir</span><span class="ts">/results/kira.db"</span> ] &amp;&amp; rm -f <span class="ts">"</span><span class="tnv">$tmpdir</span><span class="ts">/results/kira.db"</span>
+[ -e <span class="ts">"</span><span class="tnv">$tmpdir</span><span class="ts">/results"</span> ] &amp;&amp; cp -a <span class="ts">"</span><span class="tnv">$tmpdir</span><span class="ts">/results"</span> <span class="ts">"</span><span class="tnv">$yamldir</span><span class="ts">/"</span>
+[ -e <span class="ts">"</span><span class="tnv">$tmpdir</span><span class="ts">/kira.log"</span> ] &amp;&amp; cp -a <span class="ts">"</span><span class="tnv">$tmpdir</span><span class="ts">/kira.log"</span> <span class="ts">"</span><span class="tnv">$yamldir</span><span class="ts">/"</span>
+[ -e <span class="ts">"</span><span class="tnv">$tmpdir</span><span class="ts">/firefly.log"</span> ] &amp;&amp; cp -a <span class="ts">"</span><span class="tnv">$tmpdir</span><span class="ts">/firefly.log"</span> <span class="ts">"</span><span class="tnv">$yamldir</span><span class="ts">/"</span>
+rm -rf <span class="ts">"</span><span class="tnv">$tmpdir</span><span class="ts">"</span>
+<span class="tnb">if</span> [ <span class="ts">"</span><span class="tnv">$code</span><span class="ts">"</span> -ne <span class="tl">0</span> ]; <span class="tnb">then</span>
+    <span class="tnb">echo</span> <span class="ts">"Error: </span><span class="ts">${</span><span class="tnv">KIRA</span><span class="tnb">:-</span><span class="tnv">kira</span><span class="ts">}</span><span class="ts"> failed with exit code </span><span class="tnv">$code</span><span class="ts">"</span>
+<span class="tnb">fi</span>
+<span class="tnb">exit</span> <span class="ts">"</span><span class="tnv">$code</span><span class="ts">"</span>
+</pre>
+  </body>
+</html>

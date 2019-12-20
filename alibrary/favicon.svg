@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" height="10mm" width="10mm">
+ <path style="fill:none;stroke:#ef6234;stroke-width:1.5;stroke-linejoin:bevel" d="M 1,9 5,1 9,9" />
+ <path style="fill:none;stroke:#6b95ea;stroke-width:1.0" d="m 2.5,6 c 4,0 3.5,2 2.5,2 -1,0 -1.5,-2 2.5,-2" />
+ <circle style="fill:#444;stroke:none" cx="2.5" cy="6" r="1" />
+ <circle style="fill:#444;stroke:none" cx="7.5" cy="6" r="1" />
+</svg>
